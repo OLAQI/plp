@@ -1,33 +1,35 @@
-from astrbot import create_plugin
-from astrbot.types import MessageSession, Event
+from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.star import Context, Star, register
+from astrbot.api.message_components import Plain
+from typing import Dict, Any
+class PatPlugin(Star):
+    def __init__(self, context: Context, config: Dict[str, Any]):
+        super().__init__(context)
+        self.config = config
+        self.pat_count: Dict[str, int] = {}  # 存储每个用户的拍了拍次数
 
-plugin = create_plugin("微信拍一拍回复", "v0.1")
+    @filter.event_message_type(EventMessageType.PAT_MESSAGE)
+    async def on_pat_message(self, event: AstrMessageEvent):
+        """处理拍了拍我事件"""
+        user_id = event.message_obj.sender.user_id
+        if user_id not in self.pat_count:
+            self.pat_count[user_id] = 0
 
-# 使用字典存储每个用户的拍一拍次数
-user_pat_counts = {}
+        self.pat_count[user_id] += 1
+        count = self.pat_count[user_id]
 
-@plugin.on_event(types=["EventPat"])  # 监听拍一拍事件
-async def handle_pat(event: Event):
-
-    # 确认是“我”被拍了
-    if "我" in event.ctx.content:
-
-        user_id = event.sender_id # 获取发送者的ID
-        # 更新拍一拍次数
-        if user_id not in user_pat_counts:
-            user_pat_counts[user_id] = 0
-        user_pat_counts[user_id] += 1
-
-        # 根据次数回复不同内容
-        count = user_pat_counts[user_id]
         if count == 1:
-            reply_text = "别拍啦！"
+            reply = "别拍啦！"
         elif count == 2:
-            reply_text = "哎呀，还拍呀，别闹啦！"
+            reply = "哎呀，还拍呀，别闹啦！"
         elif count == 3:
-            reply_text = "别拍我啦  你要做什么  不理你了"
+            reply = "别拍我啦 你要做什么 不理你了"
         else:
-            reply_text = "已宕机，请勿要，谢谢配合"
-            user_pat_counts[user_id] = 0  # 重置计数器
-            
-        await event.reply(reply_text)
+            reply = "已宕机，请勿要，谢谢配合"
+
+        await event.send([Plain(reply)])
+
+    def reset_pat_count(self, user_id: str):
+        """重置某个用户的拍了拍次数"""
+        if user_id in self.pat_count:
+            self.pat_count[user_id] = 0
