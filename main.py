@@ -1,18 +1,58 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
+from astrbot.api.all import *
+import time
 
-@register("helloworld", "Your Name", "一个简单的 Hello World 插件", "1.0.0", "repo url")
-class MyPlugin(Star):
+@register("wechat_poke", "Your Name", "微信拍了拍回复", "1.0.1", "repo url") # 最好更新一个版本号
+class WeChatPokePlugin(Star):
+
     def __init__(self, context: Context):
         super().__init__(context)
-    
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        '''这是一个 hello world 指令''' # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+        # 使用字典记录每个用户的拍一拍次数, key: user_id, value: (timestamp, count)
+        self.poke_counts = {}
+        self.poke_responses = [
+            "别拍啦！",
+            "哎呀，还拍呀，别闹啦！",
+            "别拍我啦  你要做什么  不理你了",
+            "已宕机，请勿要，谢谢配合"
+        ]
+
+    @event_message_type(EventMessageType.ALL)  # 或根据需要使用 GROUP_MESSAGE / PRIVATE_MESSAGE
+    async def on_message(self, event: AstrMessageEvent):
+        raw_message = event.message_obj.raw_message
+
+      
+        if raw_message:
+            try:
+                message_type = raw_message.get("type")
+                content = raw_message.get("content", "")  # 获取消息内容 (注意可能为空，所以给个默认值 "")
+                to_wxid = raw_message.get("to_wxid")      # 被拍的用户的 wxid
+                from_wxid = raw_message.get("from_wxid")
+
+                # 判断条件：
+                # 1. 是系统消息 (type="system")
+                # 2. 消息内容包含 "拍了拍"
+                # 3. 被拍的用户是机器人自己 (to_wxid == event.message_obj.self_id)
+                if message_type == "system" and "拍了拍" in content and to_wxid == event.message_obj.self_id:
+
+                    # 更新拍一拍次数
+                    now = time.time()
+                    if from_wxid in self.poke_counts:
+                         last_time, count = self.poke_counts[from_wxid]
+                         if now - last_time < 60:  # 60秒内的拍一拍算多次
+                            count += 1
+                         else:
+                            count = 1  # 超过60秒，重置计数
+                    else:
+                        count = 1
+
+                    self.poke_counts[from_wxid] = (now, count)
+
+                    if count <= len(self.poke_responses):
+                         response = self.poke_responses[count - 1]
+                    else:
+                        response = self.poke_responses[-1]  # 大于4次
+
+                    await event.send(response) # 发送消息
+
+            except Exception as e:
+                self.logger.error(f"处理微信拍一拍消息出错: {e}")
+
